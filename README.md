@@ -61,7 +61,7 @@ conda install -c anaconda biopython
 ### BedGraph
 This is an example of loading a BedGraph file for training a simple keras model. It uses the same files and follows the 
 same format from the genomelake repository. You will need to first download the following files:
-* [hg19.2bit](hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit). The hg19 genome in 2.bit format. Although 
+* [hg19.2bit](http://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.2bit). The hg19 genome in .2bit format. Although 
 FASTA files are also allowed, .2bit files are preferred.
 * [JUND.HepG2.chr22.101bp_intervals.tsv.gz](https://github.com/kundajelab/genomelake/raw/master/examples/JUND.HepG2.chr22.101bp_intervals.tsv.gz).
 BedGraph example from the genomelake Github repository. 

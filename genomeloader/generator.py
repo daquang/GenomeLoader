@@ -9,7 +9,7 @@ from .wrapper import BedWrapper, BedGraphWrapper
 
 class BedGenerator(keras.utils.Sequence):
     def __init__(self, bed, genome, bigwigs=[], batch_size=128, epochs=10, window_len=200, seq_len=1024,
-                 negatives_ratio=1, jitter_mode='sliding', shuffle=True, seed=0):
+                 negatives_ratio=1, jitter_mode='sliding', shuffle=True):
         # Initialization
         self.bed = bed
         self.genome = genome
@@ -21,12 +21,14 @@ class BedGenerator(keras.utils.Sequence):
         self.intervals_df_epoch_i = None
         self.window_len = window_len
         self.seq_len = seq_len
+        assert seq_len > window_len
         self.negatives_ratio = negatives_ratio
         self.jitter_mode = jitter_mode
         self.shuffle = shuffle
         self.bed.bt.set_chromsizes(self.genome.chroms_size_pybedtools())
         if self.negatives_ratio > 1:
-            self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.bed.bt]), postmerge=False).saveas().fn)
+            self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.bed.bt]),
+                                                                       postmerge=False).saveas().fn)
             self.negative_windows_epoch_i.bt.set_chromsizes(self.genome.chroms_size_pybedtools())
         else:
             self.negative_windows_epoch_i = self.bed
@@ -79,7 +81,10 @@ class BedGenerator(keras.utils.Sequence):
         'Updates indexes after each epoch if shuffling is desired'
         try:
             self.cumulative_excl_bt = self.cumulative_excl_bt.cat(self.negative_windows_epoch_i.bt)
-            negative_windows_bt = self.negative_windows_epoch_i.bt.shuffle(excl=self.cumulative_excl_bt.fn, noOverlapping=True)
+            negative_windows_bt = self.negative_windows_epoch_i.bt.shuffle(excl=self.cumulative_excl_bt.fn,
+                                                                           noOverlapping=True,
+                                                                           seed=np.random.randint(
+                                                                               np.iinfo(np.uint32).max+1))
             self.negative_windows_epoch_i = BedWrapper(negative_windows_bt.fn)
             self.negative_windows_epoch_i.bt.set_chromsizes(self.genome.chroms_size_pybedtools())
         except BEDToolsError:  # Cannot find any more non-overlapping intervals, reset
