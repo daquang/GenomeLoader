@@ -243,35 +243,16 @@ class BedWrapper:
         self.df = sklearn.utils.shuffle(self.df)
 
 
-class BedGraphWrapper:
+class BedGraphWrapper(BedWrapper):
     def __init__(self, bedgraph_file):
         self.df = pd.read_table(bedgraph_file,
                            names=['chrom', 'chromStart', 'chromEnd', 'dataValue'])
         self.bt = pbt.BedTool(bedgraph_file).sort()
 
-    def __getitem__(self, item):
-        return self.df.iloc[item]
 
-    def __len__(self):
-        return len(self.df)
-
-    def shuffle(self):
-        self.df = sklearn.utils.shuffle(self.df)
-
-
-class NarrowPeakWrapper:
+class NarrowPeakWrapper(BedWrapper):
     def __init__(self, narrowpeak_file):
         self.df = pd.read_table(narrowpeak_file,
                            names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand',
                                   'signalValue', 'pValue', 'qValue', 'peak'])
         self.bt = pbt.BedTool(narrowpeak_file).sort()
-
-    def __getitem__(self, item):
-        return self.df.iloc[item]
-
-    def __len__(self):
-        return len(self.df)
-
-    def shuffle(self):
-        self.df = sklearn.utils.shuffle(self.df)
-

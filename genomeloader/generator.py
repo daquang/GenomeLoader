@@ -49,15 +49,15 @@ class BedGenerator(keras.utils.Sequence):
         y = []
         for interval, label in zip(intervals_batch_df.itertuples(), labels_batch):
             chrom = interval[1]
-            chromStart = interval[2]
-            chromEnd = interval[3]
-            midpt = int((chromStart + chromEnd) / 2)
-            start = midpt - self.seq_len / 2
-            stop = midpt + self.seq_len / 2
+            chrom_start = interval[2]
+            chrom_end = interval[3]
+            midpt = (chrom_start + chrom_end) / 2
+            start = int(midpt - self.seq_len / 2)
+            stop = start + self.seq_len
             if self.jitter_mode == 'sliding':
-                shift_size = np.max((self.window_len / 2 + 1, chromEnd - self.window_len / 2 - chromStart + 1))
+                shift_size = np.max((self.window_len / 2 + 1, chrom_end - self.window_len / 2 - chrom_start + 1))
             elif self.jitter_mode == 'landmark':
-                shift_size = midpt - chromStart
+                shift_size = midpt - chrom_start
             else:
                 shift_size = 0
             s = np.random.randint(-shift_size, shift_size+1)
@@ -123,22 +123,26 @@ class BedGraphGenerator(keras.utils.Sequence):
         'Generate one batch of data'
         # Collect genome intervals of the batch
         intervals_df = self.bedgraph[index*self.batch_size:(index+1)*self.batch_size]
-        X = []
+        x = []
         y = []
         for interval in intervals_df.itertuples():
             chrom = interval[1]
-            chromStart = interval[2]
-            chromEnd = interval[3]
+            chrom_start = interval[2]
+            chrom_end = interval[3]
             label = interval[4]
-            midpt = int((chromStart + chromEnd) / 2)
-            start = midpt - self.seq_len / 2
-            stop = midpt + self.seq_len / 2
-            X.append(self.genome[chrom, start:stop])
+            if self.seq_len is None:
+                start = chrom_start
+                stop = chrom_end
+            else:
+                midpt = (chrom_start + chrom_end) / 2
+                start = int(midpt - self.seq_len / 2)
+                stop = start + self.seq_len
+            x.append(self.genome[chrom, start:stop])
             y.append(label)
 
-        X = np.array(X)
+        x = np.array(x)
         y = np.array(y)
-        return X, y
+        return x, y
 
     def on_epoch_end(self):
         'Updates indexes after each epoch'
