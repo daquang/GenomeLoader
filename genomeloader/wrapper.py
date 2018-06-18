@@ -5,12 +5,14 @@ from collections import OrderedDict
 from pyfaidx import Fasta
 import py2bit
 import pyBigWig
+from quicksect import IntervalTree
 from tqdm import tqdm
 import sklearn.utils
 
 
 class SignalWrapper:
-    def __init__(self, in_mem=False, thread_safe=False):
+    def __init__(self, channel_last=True, in_mem=False, thread_safe=False):
+        self.channel_last = channel_last
         self.in_mem = in_mem
         self.thread_safe = thread_safe
 
@@ -60,7 +62,7 @@ class SignalWrapper:
 
 class GenomeWrapper(SignalWrapper):
     def __init__(self, alpha='dna', one_hot=True, channel_last=True, in_mem=False, thread_safe=False):
-        super().__init__(in_mem, thread_safe)
+        super().__init__(channel_last, in_mem, thread_safe)
         alphabets = {
             'dna': np.array(['A', 'C', 'G', 'T']),
             'rna': np.array(['A', 'C', 'G', 'U']),
@@ -75,7 +77,6 @@ class GenomeWrapper(SignalWrapper):
             'rna': 'N',
             'protein': 'X'
         }
-        self.channel_last = channel_last
         self.residues = alphabets[alpha]
         self.default_value = ambiguous_letters[alpha]
         self.one_hot = one_hot
@@ -183,8 +184,8 @@ class FastaWrapper(GenomeWrapper):
 
 
 class BigWigWrapper(SignalWrapper):
-    def __init__(self, bigwig_file, in_mem=False, thread_safe=False, default_value=0):
-        super().__init__(in_mem, thread_safe)
+    def __init__(self, bigwig_file, channel_last=True, in_mem=False, thread_safe=False, default_value=0):
+        super().__init__(channel_last, in_mem, thread_safe)
         self.bigwig = pyBigWig.open(bigwig_file, 'r')
         self._chroms_size = self.bigwig.chroms()
         self._chroms = list(self._chroms_size.keys())
@@ -225,13 +226,42 @@ class BigWigWrapper(SignalWrapper):
         seq[np.isnan(seq)] = self.default_value
         return seq
 
+    def __getitem__(self, item):
+        seq = super().__getitem__(item)
+        if self.channel_last:
+            seq = seq.reshape((-1, 1))
+        else:
+            seq = seq.reshape((1, -1))
+        return seq
+
+
+class GenomicIntervalTree(dict):
+    def add(self, chrom, start, stop):
+        if chrom in self:
+            self[chrom].add(start, stop)
+        else:
+            self[chrom] = IntervalTree()
+            self[chrom].add(start, stop)
+
+    def search(self, chrom, start, stop):
+        if chrom not in self:
+            return []
+        return self[chrom].search(start, stop)
+
 
 class BedWrapper:
-    def __init__(self, bed_file):
+    def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd']):
+        col_indices = list(range(len(col_names)))
         self.df = pd.read_table(bed_file,
-                                names=['chrom', 'chromStart', 'chromEnd'],
-                                usecols=[0, 1, 2])
+                                names=col_names,
+                                usecols=col_indices)
         self.bt = pbt.BedTool(bed_file).sort()
+        self.genomic_interval_tree = GenomicIntervalTree()
+        for interval in self.df.itertuples():
+            chrom = interval[1]
+            start = interval[2]
+            stop = interval[3]
+            self.genomic_interval_tree.add(chrom, start, stop)
 
     def __getitem__(self, item):
         return self.df.iloc[item]
@@ -242,17 +272,20 @@ class BedWrapper:
     def shuffle(self):
         self.df = sklearn.utils.shuffle(self.df)
 
+    def chroms(self):
+        return self.df.chrom.unique()
+
+    def search(self, chrom, start, stop):
+        intervals = self.genomic_interval_tree.search(chrom, start, stop)
+        return intervals
+
 
 class BedGraphWrapper(BedWrapper):
     def __init__(self, bedgraph_file):
-        self.df = pd.read_table(bedgraph_file,
-                           names=['chrom', 'chromStart', 'chromEnd', 'dataValue'])
-        self.bt = pbt.BedTool(bedgraph_file).sort()
+        super().__init__(bedgraph_file, ['chrom', 'chromStart', 'chromEnd', 'dataValue'])
 
 
 class NarrowPeakWrapper(BedWrapper):
     def __init__(self, narrowpeak_file):
-        self.df = pd.read_table(narrowpeak_file,
-                           names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand',
-                                  'signalValue', 'pValue', 'qValue', 'peak'])
-        self.bt = pbt.BedTool(narrowpeak_file).sort()
+        super().__init__(narrowpeak_file, ['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'signalValue',
+                                           'pValue', 'qValue', 'peak'])
