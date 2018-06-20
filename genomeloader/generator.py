@@ -71,11 +71,11 @@ class BedGenerator(keras.utils.Sequence):
             for i in range(len(self.bigwigs)):
                 x_bigwigs[i].append(self.bigwigs[i][chrom, start:stop])
             if self.unet:
-                if label:
+                if label: # May have to change this. Some "negative" sequences also overlap peaks
                     peaks = self.bed.search(chrom, start, stop)
                     label = np.zeros((stop - start, 1), dtype=bool)
                     for peak in peaks:
-                        label[max(0, peak.start - start):peak.end - stop, 0] = True
+                        label[max(0, peak.start - start):peak.end - start, 0] = True
                 else:
                     label = np.zeros((stop - start, 1), dtype=bool)
             y.append(label)
@@ -94,9 +94,11 @@ class BedGenerator(keras.utils.Sequence):
         if self.negatives_ratio > 1:
             self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.bed.bt]),
                                                                        postmerge=False).saveas().fn)
-            self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
-        else:
+        elif self.negatives_ratio == 1:
             self.negative_windows_epoch_i = self.bed
+        else:
+            self.negative_windows_epoch_i = BedWrapper(pbt.BedTool([]).fn)
+        self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         if self.jitter_mode == 'sliding':
             self.cumulative_excl_bt = self.bed.bt.slop(b=self.window_len/2)
         else:
@@ -122,8 +124,9 @@ class BedGenerator(keras.utils.Sequence):
         labels_epoch_i = np.zeros((self.negatives_ratio + 1) * len(self.bed), dtype=bool)
         labels_epoch_i[:len(self.bed)] = True
         self.intervals_df_epoch_i = pd.concat([self.bed.df, self.negative_windows_epoch_i.df])
-        self.intervals_df_epoch_i, self.labels_epoch_i = sklearn.utils.shuffle(self.intervals_df_epoch_i,
-                                                                               labels_epoch_i)
+        if self.shuffle:
+            self.intervals_df_epoch_i, self.labels_epoch_i = sklearn.utils.shuffle(self.intervals_df_epoch_i,
+                                                                                   labels_epoch_i)
 
 
 class BedGraphGenerator(keras.utils.Sequence):
