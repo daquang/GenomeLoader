@@ -3,6 +3,7 @@
 ---
 
 ## Table of Contents
+* [Design philosophy](#design-philosophy)
 * [Citation](#citation)
 * [Installation](#installation)
     * [Required dependencies](#required-dependencies)
@@ -11,6 +12,35 @@
 * [To-Do](#to-do)
 
 ---
+
+## Design philosophy
+GenomeLoader is a library for loading genomic data for deep learning applications. It is designed to be fast, 
+convenient, and minimalistic. To achieve this goal, I tried my best to adhere to the following rules:
+* __Up-to-date__. GenomeLoader depends on several libraries. These libraries are sometimes updated without backwards 
+compatibility. I will update GenomeLoader to always be compatible with the latest versions of all dependencies.
+* __Minimize memory and processing footprint__. Batch data are efficiently loaded from hard drive into memory as needed,
+ with as little effect on training/testing times as possible. In benchmark tests, I typically need less than 2GB of 
+ system RAM to train deep learning models with GenomeLoader. To meet this goal, I exclusively developed/tested on the 
+ following systems:
+ 
+    MacBook Pro 15-inch w/ Touch Bar (2017)  
+    MacOs High Sierra  
+    2.8GHz quad-core 7th-generation Intel Core i7 processor        
+    16GB 2133MHz LPDDR3 memory    
+    256GB SSD storage    
+    
+    Thinkmate VSX R5 340V7    
+    Ubuntu 18.04    
+    Quad-Core Intel Core i7-7700K 4.20GHz 8MB Cache
+    2 x Crucial 16GB PC4-19200 2400MHz DDR4 Non-ECC UDIMM
+    2 x Titan Xp GPU
+    500GB Samsung 960 EVO M.2 PCIe 3.0 x4 NVMe SSD
+
+* __No intermediate files__. We all hate running out of space on our hard drives.
+* __Use only standardized data formats__. In order to make the libraries compatible with other datasets, GenomeLoader 
+only supports st
+* __Reproducibility__. Random seeds ensures multiple runs of the program yield the same results. However, Tensorflow-GPU 
+always has some element of randomness, so perfect reproducibility in deep learning applications is difficult, if not impossible.
 
 ## Citation
 
@@ -95,5 +125,3 @@ Here is the the expected result:
 ## To-Do
 Here is a list of features I plan to add. They will be added according to demand.
 * Multi-task loading
-* Batch loading with bigWig data
-* Interval outputs

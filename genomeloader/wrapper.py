@@ -251,6 +251,7 @@ class GenomicIntervalTree(dict):
 
 class BedWrapper:
     def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd']):
+        self.col_names = col_names
         col_indices = list(range(len(col_names)))
         self.df = pd.read_table(bed_file,
                                 names=col_names,
@@ -278,6 +279,24 @@ class BedWrapper:
     def search(self, chrom, start, stop):
         intervals = self.genomic_interval_tree.search(chrom, start, stop)
         return intervals
+
+    def train_valid_test_split(self, valid_chroms, test_chroms=[]):
+        inds_valid = self.df['chrom'].isin(valid_chroms)
+        inds_test = self.df['chrom'].isin(test_chroms)
+        inds_train = ~inds_valid & ~inds_test
+        df_train = self.df.loc[inds_train]
+        df_valid = self.df.loc[inds_valid]
+        df_test = self.df.loc[inds_test]
+        bed_str_train = df_train.to_string(header=False, index=False) if len(df_train) > 0 else ''
+        bed_str_valid = df_valid.to_string(header=False, index=False) if len(df_valid) > 0 else ''
+        bed_str_test = df_test.to_string(header=False, index=False) if len(df_test) > 0 else ''
+        bed_file_train = pbt.BedTool(bed_str_train, from_string=True).fn
+        bed_file_valid = pbt.BedTool(bed_str_valid, from_string=True).fn
+        bed_file_test = pbt.BedTool(bed_str_test, from_string=True).fn
+        bed_train = BedWrapper(bed_file_train, self.col_names)
+        bed_valid = BedWrapper(bed_file_valid, self.col_names)
+        bed_test = BedWrapper(bed_file_test, self.col_names)
+        return bed_train, bed_valid, bed_test
 
 
 class BedGraphWrapper(BedWrapper):

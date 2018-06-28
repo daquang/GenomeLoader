@@ -9,7 +9,7 @@ from .wrapper import BedWrapper
 
 class BedGenerator(keras.utils.Sequence):
     def __init__(self, bed, genome, bigwigs=[], blacklist=None, batch_size=128, epochs=10, window_len=200, seq_len=1024,
-                 negatives_ratio=1, unet=False, jitter_mode='sliding', shuffle=True):
+                 negatives_ratio=1, return_sequences=False, jitter_mode='sliding', shuffle=True):
         # Initialization
         self.bed = bed
         self.genome = genome
@@ -59,9 +59,9 @@ class BedGenerator(keras.utils.Sequence):
             start = int(midpt - self.seq_len / 2)
             stop = start + self.seq_len
             if self.jitter_mode == 'sliding':
-                shift_size = np.max((self.window_len / 2 + 1, chrom_end - self.window_len / 2 - chrom_start + 1))
-            elif self.jitter_mode == 'landmark':
                 shift_size = midpt - chrom_start
+            elif self.jitter_mode == 'landmark':
+                shift_size = self.window_len / 2
             else:
                 shift_size = 0
             s = np.random.randint(-shift_size, shift_size+1)
@@ -70,14 +70,11 @@ class BedGenerator(keras.utils.Sequence):
             x_genome.append(self.genome[chrom, start:stop])
             for i in range(len(self.bigwigs)):
                 x_bigwigs[i].append(self.bigwigs[i][chrom, start:stop])
-            if self.unet:
-                if label: # May have to change this. Some "negative" sequences also overlap peaks
-                    peaks = self.bed.search(chrom, start, stop)
-                    label = np.zeros((stop - start, 1), dtype=bool)
-                    for peak in peaks:
-                        label[max(0, peak.start - start):peak.end - start, 0] = True
-                else:
-                    label = np.zeros((stop - start, 1), dtype=bool)
+            if self.return_sequences:
+                peaks = self.bed.search(chrom, start, stop)
+                label = np.zeros((stop - start, 1), dtype=bool)
+                for peak in peaks:
+                    label[max(0, peak.start - start):peak.end - start, 0] = True
             y.append(label)
 
         x_genome = np.array(x_genome)
