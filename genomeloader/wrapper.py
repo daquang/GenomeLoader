@@ -236,12 +236,10 @@ class BigWigWrapper(SignalWrapper):
 
 
 class GenomicIntervalTree(dict):
-    def add(self, chrom, start, stop):
-        if chrom in self:
-            self[chrom].add(start, stop)
-        else:
+    def add(self, chrom, start, stop, data=None):
+        if chrom not in self:
             self[chrom] = IntervalTree()
-            self[chrom].add(start, stop)
+        self[chrom].add(start, stop, data)
 
     def search(self, chrom, start, stop):
         if chrom not in self:
@@ -250,25 +248,41 @@ class GenomicIntervalTree(dict):
 
 
 class BedWrapper:
-    def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd']):
+    def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd'], channel_last=True, dtype=bool):
         self.col_names = col_names
         col_indices = list(range(len(col_names)))
+        self.channel_last = channel_last
         self.df = pd.read_table(bed_file,
                                 names=col_names,
                                 usecols=col_indices)
         self.bt = pbt.BedTool(bed_file).sort()
         self.genomic_interval_tree = GenomicIntervalTree()
+        use_data = False
+        self.dtype = dtype
+        if len(col_names) > 3:
+            use_data = True
+            data_col = 7 if len(col_names) == 10 else 4
         for interval in self.df.itertuples():
             chrom = interval[1]
             start = interval[2]
             stop = interval[3]
-            self.genomic_interval_tree.add(chrom, start, stop)
-
-    def __getitem__(self, item):
-        return self.df.iloc[item]
+            data = interval[data_col] if use_data else True
+            self.genomic_interval_tree.add(chrom, start, stop, data)
 
     def __len__(self):
         return len(self.df)
+
+    def __getitem__(self, item):
+        chrom, coords = item
+        start = coords.start
+        stop = coords.stop
+        intervals = self.search(chrom, start, stop)
+        seq = np.zeros((stop - start, 1), dtype=self.dtype)
+        for interval in intervals:
+            seq[max(0, interval.start - start):interval.end - start, 0] = interval.data
+        if not self.channel_last:
+            seq = seq.T
+        return seq
 
     def shuffle(self):
         self.df = sklearn.utils.shuffle(self.df)
@@ -300,11 +314,17 @@ class BedWrapper:
 
 
 class BedGraphWrapper(BedWrapper):
-    def __init__(self, bedgraph_file):
-        super().__init__(bedgraph_file, ['chrom', 'chromStart', 'chromEnd', 'dataValue'])
+    def __init__(self, bedgraph_file, channel_last=True):
+        super().__init__(bedgraph_file,
+                         col_names=['chrom', 'chromStart', 'chromEnd', 'dataValue'],
+                         channel_last=channel_last,
+                         dtype=np.float32)
 
 
 class NarrowPeakWrapper(BedWrapper):
-    def __init__(self, narrowpeak_file):
-        super().__init__(narrowpeak_file, ['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'signalValue',
-                                           'pValue', 'qValue', 'peak'])
+    def __init__(self, narrowpeak_file, channel_last=True):
+        super().__init__(narrowpeak_file,
+                         col_names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'signalValue',
+                                    'pValue', 'qValue', 'peak'],
+                         channel_last=channel_last,
+                         dtype=np.float32)

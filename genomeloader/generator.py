@@ -8,8 +8,8 @@ from .wrapper import BedWrapper
 
 
 class BedGenerator(keras.utils.Sequence):
-    def __init__(self, bed, genome, bigwigs=[], blacklist=None, batch_size=128, epochs=10, window_len=200, seq_len=1024,
-                 negatives_ratio=1, return_sequences=False, jitter_mode='sliding', shuffle=True):
+    def __init__(self, bed, genome, bigwigs=[], extra=None, blacklist=None, batch_size=128, epochs=10, window_len=200,
+                 seq_len=1024, negatives_ratio=1, return_sequences=False, jitter_mode='sliding', shuffle=True):
         # Initialization
         self.bed = bed
         self.genome = genome
@@ -22,10 +22,24 @@ class BedGenerator(keras.utils.Sequence):
         self.intervals_df_epoch_i = None
         self.window_len = window_len
         self.seq_len = seq_len
-        assert seq_len > window_len
+        if seq_len <= window_len:
+            raise ValueError('seq_len must be > window_len')
         self.negatives_ratio = negatives_ratio
-        self.unet = unet
+        self.return_sequences = return_sequences
+        jitter_modes = ['sliding', 'landmark', None]
+        if jitter_mode not in jitter_modes:
+            raise ValueError('Invalid jitter mode. Expected one of: %s' % jitter_modes)
         self.jitter_mode = jitter_mode
+        if extra is not None:
+            if self.jitter_mode == 'sliding':
+                extra_negative_bt = extra.bt.subtract(bed.bt.slop(b=self.window_len/2))
+            else:
+                extra_negative_bt = extra.bt.subtract(bed.bt)
+            if blacklist is not None:
+                extra_negative_bt = extra_negative_bt.subtract(blacklist.bt)
+            self.extra_negative = BedWrapper(extra_negative_bt.fn)
+        else:
+            self.extra_negative = None
         self.shuffle = shuffle
         # Will only shuffle intervals within chromosomes occupied by BED intervals
         genome_chromsizes = self.genome.chroms_size_pybedtools()
@@ -41,7 +55,8 @@ class BedGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.ceil((1.0 + self.negatives_ratio) * len(self.bed) / self.batch_size))
+        return int(np.ceil(len(self.labels_epoch_i) / self.batch_size))
+        # return int(np.ceil((1.0 + self.negatives_ratio) * len(self.bed) / self.batch_size))
 
     def __getitem__(self, index):
         'Generate one batch of data'
@@ -59,7 +74,8 @@ class BedGenerator(keras.utils.Sequence):
             start = int(midpt - self.seq_len / 2)
             stop = start + self.seq_len
             if self.jitter_mode == 'sliding':
-                shift_size = midpt - chrom_start
+                interval_len = chrom_end - chrom_start
+                shift_size = np.max([midpt - chrom_start, int((self.window_len - interval_len) / 2)])
             elif self.jitter_mode == 'landmark':
                 shift_size = self.window_len / 2
             else:
@@ -71,10 +87,7 @@ class BedGenerator(keras.utils.Sequence):
             for i in range(len(self.bigwigs)):
                 x_bigwigs[i].append(self.bigwigs[i][chrom, start:stop])
             if self.return_sequences:
-                peaks = self.bed.search(chrom, start, stop)
-                label = np.zeros((stop - start, 1), dtype=bool)
-                for peak in peaks:
-                    label[max(0, peak.start - start):peak.end - start, 0] = True
+                label = self.bed[chrom, start:stop]
             y.append(label)
 
         x_genome = np.array(x_genome)
@@ -107,7 +120,7 @@ class BedGenerator(keras.utils.Sequence):
         self.epoch_i += 1
         if self.epoch_i > 0 and not self.shuffle:
             return
-        'Updates indexes after each epoch if shuffling is desired'
+        # Updates indexes after each epoch if shuffling is desired
         try:
             self.cumulative_excl_bt = self.cumulative_excl_bt.cat(self.negative_windows_epoch_i.bt)
             negative_windows_bt = self.negative_windows_epoch_i.bt.shuffle(excl=self.cumulative_excl_bt.fn,
@@ -117,13 +130,18 @@ class BedGenerator(keras.utils.Sequence):
             self.negative_windows_epoch_i = BedWrapper(negative_windows_bt.fn)
             self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         except BEDToolsError:  # Cannot find any more non-overlapping intervals, reset
+            print('Cannot find any more negatives, resetting')
             self._reset_negatives()
-        labels_epoch_i = np.zeros((self.negatives_ratio + 1) * len(self.bed), dtype=bool)
-        labels_epoch_i[:len(self.bed)] = True
-        self.intervals_df_epoch_i = pd.concat([self.bed.df, self.negative_windows_epoch_i.df])
+        extra_negative_size = 0 if self.extra_negative is None else len(self.extra_negative)
+        self.labels_epoch_i = np.zeros((self.negatives_ratio + 1) * len(self.bed) + extra_negative_size, dtype=bool)
+        self.labels_epoch_i[:len(self.bed)] = True
+        intervals_df_list_epoch_i = [self.bed.df, self.negative_windows_epoch_i.df]
+        if self.extra_negative is not None:
+            intervals_df_list_epoch_i.append(self.extra_negative.df)
+        self.intervals_df_epoch_i = pd.concat(intervals_df_list_epoch_i)
         if self.shuffle:
             self.intervals_df_epoch_i, self.labels_epoch_i = sklearn.utils.shuffle(self.intervals_df_epoch_i,
-                                                                                   labels_epoch_i)
+                                                                                   self.labels_epoch_i)
 
 
 class BedGraphGenerator(keras.utils.Sequence):
