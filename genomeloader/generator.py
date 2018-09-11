@@ -7,47 +7,50 @@ import sklearn.utils
 from .wrapper import BedWrapper
 
 
-class BedGenerator(keras.utils.Sequence):
-    def __init__(self, bed, genome, bigwigs=[], extra=None, blacklist=None, batch_size=128, epochs=10, window_len=200,
-                 seq_len=1024, negatives_ratio=1, return_sequences=False, jitter_mode='sliding', shuffle=True):
+class MultiBedGenerator(keras.utils.Sequence):
+    def __init__(self, beds, genome, signals=[], extra=None, blacklist=None, batch_size=128, window_len=200,
+                 seq_len=1024, output_seq_len=None, negatives_ratio=1, return_sequences=False, jitter_mode='sliding',
+                 shuffle=True):
         # Initialization
-        self.bed = bed
+        self.beds = beds
+        beds_bt = [bed.bt for bed in beds]
+        if len(beds_bt) == 1:
+            master_bed_bt = beds_bt[0]
+        else:
+            master_bed_bt = pbt.BedTool.cat(*beds_bt, postmerge=True)
+        if extra is not None:
+            master_bed_bt = master_bed_bt.cat(extra.bt, postmerge=True)
+        self.master_bed = BedWrapper(master_bed_bt.fn)
         self.genome = genome
-        self.bigwigs = bigwigs
+        self.signals = signals
         self.blacklist = blacklist
         self.batch_size = batch_size
-        self.epochs = epochs
         self.epoch_i = -1
         self.labels_epoch_i = None
         self.intervals_df_epoch_i = None
         self.window_len = window_len
+        if type(window_len) is not int or window_len < 0:
+            raise ValueError('window_len must be positive integer')
         self.seq_len = seq_len
         if seq_len <= window_len:
             raise ValueError('seq_len must be > window_len')
+        if output_seq_len is None:
+            output_seq_len = seq_len
+        self.output_seq_len = output_seq_len
         self.negatives_ratio = negatives_ratio
         self.return_sequences = return_sequences
-        jitter_modes = ['sliding', 'landmark', None]
+        jitter_modes = ['sliding', 'detection', None]
         if jitter_mode not in jitter_modes:
             raise ValueError('Invalid jitter mode. Expected one of: %s' % jitter_modes)
         self.jitter_mode = jitter_mode
-        if extra is not None:
-            if self.jitter_mode == 'sliding':
-                extra_negative_bt = extra.bt.subtract(bed.bt.slop(b=self.window_len/2))
-            else:
-                extra_negative_bt = extra.bt.subtract(bed.bt)
-            if blacklist is not None:
-                extra_negative_bt = extra_negative_bt.subtract(blacklist.bt)
-            self.extra_negative = BedWrapper(extra_negative_bt.fn)
-        else:
-            self.extra_negative = None
         self.shuffle = shuffle
         # Will only shuffle intervals within chromosomes occupied by BED intervals
         genome_chromsizes = self.genome.chroms_size_pybedtools()
-        bed_chroms = self.bed.chroms()
+        bed_chroms = self.master_bed.chroms()
         self.chromsizes = {}
         for chrom in bed_chroms:
             self.chromsizes[chrom] = genome_chromsizes[chrom]
-        self.bed.bt.set_chromsizes(self.chromsizes)
+        self.master_bed.bt.set_chromsizes(self.chromsizes)
         self.negative_windows_epoch_i = None
         self.cumulative_excl_bt = None
         self._reset_negatives()
@@ -55,64 +58,74 @@ class BedGenerator(keras.utils.Sequence):
 
     def __len__(self):
         'Denotes the number of batches per epoch'
-        return int(np.ceil(len(self.labels_epoch_i) / self.batch_size))
+        return int(np.ceil(len(self.intervals_df_epoch_i) / self.batch_size))
         # return int(np.ceil((1.0 + self.negatives_ratio) * len(self.bed) / self.batch_size))
 
     def __getitem__(self, index):
         'Generate one batch of data'
         # Collect genome intervals of the batch
-        intervals_batch_df = self.intervals_df_epoch_i[index*self.batch_size:(index+1)*self.batch_size]
-        labels_batch = self.labels_epoch_i[index*self.batch_size:(index+1)*self.batch_size]
+        intervals_batch_df = self.intervals_df_epoch_i[index * self.batch_size:(index + 1) * self.batch_size]
         x_genome = []
-        x_bigwigs = len(self.bigwigs) * [[]]
+        x_signals = [[] for _ in range(len(self.signals))]
         y = []
-        for interval, label in zip(intervals_batch_df.itertuples(), labels_batch):
+        for interval in intervals_batch_df.itertuples():
             chrom = interval[1]
             chrom_start = interval[2]
             chrom_end = interval[3]
             midpt = (chrom_start + chrom_end) / 2
-            start = int(midpt - self.seq_len / 2)
-            stop = start + self.seq_len
             if self.jitter_mode == 'sliding':
                 interval_len = chrom_end - chrom_start
                 shift_size = np.max([midpt - chrom_start, int((self.window_len - interval_len) / 2)])
-            elif self.jitter_mode == 'landmark':
-                shift_size = self.window_len / 2
+            elif self.jitter_mode == 'detection':
+                shift_size = self.output_seq_len / 2
             else:
                 shift_size = 0
-            s = np.random.randint(-shift_size, shift_size+1)
-            start += s
-            stop += s
+            s = np.random.randint(-shift_size, shift_size + 1)
+            midpt += s
+            start = int(midpt - self.seq_len / 2)
+            stop = start + self.seq_len
             x_genome.append(self.genome[chrom, start:stop])
-            for i in range(len(self.bigwigs)):
-                x_bigwigs[i].append(self.bigwigs[i][chrom, start:stop])
+            for i in range(len(self.signals)):
+                x_signals[i].append(self.signals[i][chrom, start:stop])
+            label = []
+            for bed in self.beds:
+                if self.return_sequences:
+                    start_output = int(midpt - self.output_seq_len / 2)
+                    stop_output = start_output + self.output_seq_len
+                    label_i = bed[chrom, start_output:stop_output]
+                else:
+                    start_window = int(midpt - self.window_len / 2)
+                    stop_window = start_window + self.window_len
+                    label_i = bed[chrom, start_window:stop_window].sum() >= self.window_len / 2
+                label.append(label_i)
             if self.return_sequences:
-                label = self.bed[chrom, start:stop]
+                label = np.concatenate(label, axis=-1)
             y.append(label)
 
         x_genome = np.array(x_genome)
-        if len(self.bigwigs) == 0:
+        if len(self.signals) == 0:
             x = x_genome
         else:
             x = [x_genome]
-            for x_bigwig in x_bigwigs:
-                x.append(np.array(x_bigwig))
+            for x_signal in x_signals:
+                x.append(np.array(x_signal))
+            #x = np.concatenate(x, axis=-1)
         y = np.array(y)
         return x, y
 
     def _reset_negatives(self):
         if self.negatives_ratio > 1:
             self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.bed.bt]),
-                                                                       postmerge=False).saveas().fn)
+                                                                       postmerge=False).fn)
         elif self.negatives_ratio == 1:
-            self.negative_windows_epoch_i = self.bed
+            self.negative_windows_epoch_i = self.master_bed
         else:
             self.negative_windows_epoch_i = BedWrapper(pbt.BedTool([]).fn)
         self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         if self.jitter_mode == 'sliding':
-            self.cumulative_excl_bt = self.bed.bt.slop(b=self.window_len/2)
+            self.cumulative_excl_bt = self.master_bed.bt.slop(b=self.window_len / 2)
         else:
-            self.cumulative_excl_bt = self.bed.bt
+            self.cumulative_excl_bt = self.master_bed.bt
         if self.blacklist is not None:
             self.cumulative_excl_bt = self.cumulative_excl_bt.cat(self.blacklist.bt)
 
@@ -122,36 +135,32 @@ class BedGenerator(keras.utils.Sequence):
             return
         # Updates indexes after each epoch if shuffling is desired
         try:
-            self.cumulative_excl_bt = self.cumulative_excl_bt.cat(self.negative_windows_epoch_i.bt)
+            self.cumulative_excl_bt = pbt.BedTool(self.cumulative_excl_bt.cat(self.negative_windows_epoch_i.bt,
+                                                                              postmerge=False))
             negative_windows_bt = self.negative_windows_epoch_i.bt.shuffle(excl=self.cumulative_excl_bt.fn,
                                                                            noOverlapping=True,
                                                                            seed=np.random.randint(
-                                                                               np.iinfo(np.uint32).max+1))
+                                                                               np.iinfo(np.uint32).max + 1))
             self.negative_windows_epoch_i = BedWrapper(negative_windows_bt.fn)
             self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         except BEDToolsError:  # Cannot find any more non-overlapping intervals, reset
             print('Cannot find any more negatives, resetting')
             self._reset_negatives()
-        extra_negative_size = 0 if self.extra_negative is None else len(self.extra_negative)
-        self.labels_epoch_i = np.zeros((self.negatives_ratio + 1) * len(self.bed) + extra_negative_size, dtype=bool)
-        self.labels_epoch_i[:len(self.bed)] = True
-        intervals_df_list_epoch_i = [self.bed.df, self.negative_windows_epoch_i.df]
-        if self.extra_negative is not None:
-            intervals_df_list_epoch_i.append(self.extra_negative.df)
+        intervals_df_list_epoch_i = [self.master_bed.df, self.negative_windows_epoch_i.df]
         self.intervals_df_epoch_i = pd.concat(intervals_df_list_epoch_i)
         if self.shuffle:
-            self.intervals_df_epoch_i, self.labels_epoch_i = sklearn.utils.shuffle(self.intervals_df_epoch_i,
-                                                                                   self.labels_epoch_i)
+            self.intervals_df_epoch_i = sklearn.utils.shuffle(self.intervals_df_epoch_i)
 
 
 class BedGraphGenerator(keras.utils.Sequence):
-    def __init__(self, bedgraph, genome, bigwigs=[], batch_size=128, seq_len=1024, shuffle=True):
+    def __init__(self, bedgraph, genome, signals=[], batch_size=128, seq_len=1024, return_sequences=False, shuffle=True):
         # Initialization
         self.bedgraph = bedgraph
         self.genome = genome
         self.batch_size = batch_size
-        self.bigwigs = bigwigs
+        self.signals = signals
         self.seq_len = seq_len
+        self.return_sequences = return_sequences
         self.shuffle = shuffle
         self.on_epoch_end()
 
@@ -162,9 +171,9 @@ class BedGraphGenerator(keras.utils.Sequence):
     def __getitem__(self, index):
         'Generate one batch of data'
         # Collect genome intervals of the batch
-        intervals_df = self.bedgraph[index*self.batch_size:(index+1)*self.batch_size]
+        intervals_df = self.bedgraph.df[index*self.batch_size:(index+1)*self.batch_size]
         x_genome = []
-        x_bigwigs = len(self.bigwigs) * [[]]
+        x_signals = [[] for _ in range(len(self.signals))]
         y = []
         for interval in intervals_df.itertuples():
             chrom = interval[1]
@@ -179,17 +188,19 @@ class BedGraphGenerator(keras.utils.Sequence):
                 start = int(midpt - self.seq_len / 2)
                 stop = start + self.seq_len
             x_genome.append(self.genome[chrom, start:stop])
-            for i in range(len(self.bigwigs)):
-                x_bigwigs[i].append(self.bigwigs[i][chrom, start:stop])
+            for i in range(len(self.signals)):
+                x_signals[i].append(self.signals[i][chrom, start:stop])
+            if self.return_sequences:
+                label = self.bedgraph[chrom, start:stop]
             y.append(label)
 
         x_genome = np.array(x_genome)
-        if len(self.bigwigs) == 0:
+        if len(self.signals) == 0:
             x = x_genome
         else:
             x = [x_genome]
-            for x_bigwig in x_bigwigs:
-                x.append(np.array(x_bigwig))
+            for x_signal in x_signals:
+                x.append(np.array(x_signal))
         y = np.array(y)
         return x, y
 

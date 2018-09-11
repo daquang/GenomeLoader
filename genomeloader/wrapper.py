@@ -5,7 +5,7 @@ from collections import OrderedDict
 from pyfaidx import Fasta
 import py2bit
 import pyBigWig
-from quicksect import IntervalTree
+from intervaltree import IntervalTree
 from tqdm import tqdm
 import sklearn.utils
 
@@ -239,7 +239,7 @@ class GenomicIntervalTree(dict):
     def add(self, chrom, start, stop, data=None):
         if chrom not in self:
             self[chrom] = IntervalTree()
-        self[chrom].add(start, stop, data)
+        self[chrom].addi(start, stop, data)
 
     def search(self, chrom, start, stop):
         if chrom not in self:
@@ -279,7 +279,7 @@ class BedWrapper:
         intervals = self.search(chrom, start, stop)
         seq = np.zeros((stop - start, 1), dtype=self.dtype)
         for interval in intervals:
-            seq[max(0, interval.start - start):interval.end - start, 0] = interval.data
+            seq[max(0, interval.begin - start):interval.end - start, 0] = interval.data
         if not self.channel_last:
             seq = seq.T
         return seq
