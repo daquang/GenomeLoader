@@ -248,14 +248,17 @@ class GenomicIntervalTree(dict):
 
 
 class BedWrapper:
-    def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd'], channel_last=True, dtype=bool):
+    def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd'], channel_last=True, sort_bed=True,
+                 dtype=bool):
         self.col_names = col_names
         col_indices = list(range(len(col_names)))
         self.channel_last = channel_last
         self.df = pd.read_table(bed_file,
                                 names=col_names,
                                 usecols=col_indices)
-        self.bt = pbt.BedTool(bed_file).sort()
+        self.bt = pbt.BedTool(bed_file)
+        if sort_bed:
+            self.bt = pbt.BedTool(bed_file).sort()
         self.genomic_interval_tree = GenomicIntervalTree()
         use_data = False
         self.dtype = dtype

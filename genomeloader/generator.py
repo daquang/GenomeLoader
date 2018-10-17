@@ -10,7 +10,7 @@ from .wrapper import BedWrapper
 class MultiBedGenerator(keras.utils.Sequence):
     def __init__(self, beds, genome, signals=[], extra=None, blacklist=None, batch_size=128, window_len=200,
                  seq_len=1024, output_seq_len=None, negatives_ratio=1, return_sequences=False, jitter_mode='sliding',
-                 shuffle=True):
+                 return_output=True, shuffle=True):
         # Initialization
         self.beds = beds
         beds_bt = [bed.bt for bed in beds]
@@ -20,13 +20,15 @@ class MultiBedGenerator(keras.utils.Sequence):
             master_bed_bt = pbt.BedTool.cat(*beds_bt, postmerge=True)
         if extra is not None:
             master_bed_bt = master_bed_bt.cat(extra.bt, postmerge=True)
-        self.master_bed = BedWrapper(master_bed_bt.fn)
+        if len(beds_bt) == 1 and extra is None:
+            self.master_bed = beds[0]  # simple case, do not recreate BedWrapper object
+        else:
+            self.master_bed = BedWrapper(master_bed_bt.fn)
         self.genome = genome
         self.signals = signals
         self.blacklist = blacklist
         self.batch_size = batch_size
         self.epoch_i = -1
-        self.labels_epoch_i = None
         self.intervals_df_epoch_i = None
         self.window_len = window_len
         if type(window_len) is not int or window_len < 0:
@@ -39,6 +41,7 @@ class MultiBedGenerator(keras.utils.Sequence):
         self.output_seq_len = output_seq_len
         self.negatives_ratio = negatives_ratio
         self.return_sequences = return_sequences
+        self.return_output = return_output
         jitter_modes = ['sliding', 'detection', None]
         if jitter_mode not in jitter_modes:
             raise ValueError('Invalid jitter mode. Expected one of: %s' % jitter_modes)
@@ -88,19 +91,20 @@ class MultiBedGenerator(keras.utils.Sequence):
             for i in range(len(self.signals)):
                 x_signals[i].append(self.signals[i][chrom, start:stop])
             label = []
-            for bed in self.beds:
+            if self.return_output:
+                for bed in self.beds:
+                    if self.return_sequences:
+                        start_output = int(midpt - self.output_seq_len / 2)
+                        stop_output = start_output + self.output_seq_len
+                        label_i = bed[chrom, start_output:stop_output]
+                    else:
+                        start_window = int(midpt - self.window_len / 2)
+                        stop_window = start_window + self.window_len
+                        label_i = bed[chrom, start_window:stop_window].sum() >= self.window_len / 2
+                    label.append(label_i)
                 if self.return_sequences:
-                    start_output = int(midpt - self.output_seq_len / 2)
-                    stop_output = start_output + self.output_seq_len
-                    label_i = bed[chrom, start_output:stop_output]
-                else:
-                    start_window = int(midpt - self.window_len / 2)
-                    stop_window = start_window + self.window_len
-                    label_i = bed[chrom, start_window:stop_window].sum() >= self.window_len / 2
-                label.append(label_i)
-            if self.return_sequences:
-                label = np.concatenate(label, axis=-1)
-            y.append(label)
+                    label = np.concatenate(label, axis=-1)
+                y.append(label)
 
         x_genome = np.array(x_genome)
         if len(self.signals) == 0:
@@ -109,9 +113,10 @@ class MultiBedGenerator(keras.utils.Sequence):
             x = [x_genome]
             for x_signal in x_signals:
                 x.append(np.array(x_signal))
-            #x = np.concatenate(x, axis=-1)
-        y = np.array(y)
-        return x, y
+        if self.return_output:
+            y = np.array(y)
+            return x, y
+        return x
 
     def _reset_negatives(self):
         if self.negatives_ratio > 1:
