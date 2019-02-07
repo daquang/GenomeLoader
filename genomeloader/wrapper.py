@@ -249,22 +249,21 @@ class GenomicIntervalTree(dict):
 
 class BedWrapper:
     def __init__(self, bed_file, col_names=['chrom', 'chromStart', 'chromEnd'], channel_last=True, sort_bed=True,
-                 dtype=bool):
+                 data_col=None, dtype=bool):
         self.col_names = col_names
+        self.data_col = data_col
         col_indices = list(range(len(col_names)))
         self.channel_last = channel_last
         self.df = pd.read_table(bed_file,
                                 names=col_names,
                                 usecols=col_indices)
+        self._chroms = self.df.chrom.unique()
         self.bt = pbt.BedTool(bed_file)
         if sort_bed:
             self.bt = pbt.BedTool(bed_file).sort()
         self.genomic_interval_tree = GenomicIntervalTree()
-        use_data = False
+        use_data = data_col is not None
         self.dtype = dtype
-        if len(col_names) > 3:
-            use_data = True
-            data_col = 7 if len(col_names) == 10 else 4
         for interval in self.df.itertuples():
             chrom = interval[1]
             start = interval[2]
@@ -279,7 +278,10 @@ class BedWrapper:
         chrom, coords = item
         start = coords.start
         stop = coords.stop
-        intervals = self.search(chrom, start, stop)
+        if chrom in self._chroms:
+            intervals = self.search(chrom, start, stop)
+        else:
+            intervals = set()
         seq = np.zeros((stop - start, 1), dtype=self.dtype)
         for interval in intervals:
             seq[max(0, interval.begin - start):interval.end - start, 0] = interval.data
@@ -291,7 +293,10 @@ class BedWrapper:
         self.df = sklearn.utils.shuffle(self.df)
 
     def chroms(self):
-        return self.df.chrom.unique()
+        return self._chroms
+
+    def sum_intervals(self):
+        return sum(self.df.chromEnd - self.df.chromStart)
 
     def search(self, chrom, start, stop):
         intervals = self.genomic_interval_tree.search(chrom, start, stop)
@@ -310,9 +315,9 @@ class BedWrapper:
         bed_file_train = pbt.BedTool(bed_str_train, from_string=True).fn
         bed_file_valid = pbt.BedTool(bed_str_valid, from_string=True).fn
         bed_file_test = pbt.BedTool(bed_str_test, from_string=True).fn
-        bed_train = BedWrapper(bed_file_train, self.col_names)
-        bed_valid = BedWrapper(bed_file_valid, self.col_names)
-        bed_test = BedWrapper(bed_file_test, self.col_names)
+        bed_train = BedWrapper(bed_file_train, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
+        bed_valid = BedWrapper(bed_file_valid, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
+        bed_test = BedWrapper(bed_file_test, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
         return bed_train, bed_valid, bed_test
 
 
@@ -320,7 +325,7 @@ class BedGraphWrapper(BedWrapper):
     def __init__(self, bedgraph_file, channel_last=True):
         super().__init__(bedgraph_file,
                          col_names=['chrom', 'chromStart', 'chromEnd', 'dataValue'],
-                         channel_last=channel_last,
+                         channel_last=channel_last, data_col=4,
                          dtype=np.float32)
 
 
@@ -329,5 +334,14 @@ class NarrowPeakWrapper(BedWrapper):
         super().__init__(narrowpeak_file,
                          col_names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'signalValue',
                                     'pValue', 'qValue', 'peak'],
-                         channel_last=channel_last,
+                         channel_last=channel_last, data_col=7,
+                         dtype=np.float32)
+
+
+class BroadPeakWrapper(BedWrapper):
+    def __init__(self, narrowpeak_file, channel_last=True):
+        super().__init__(narrowpeak_file,
+                         col_names=['chrom', 'chromStart', 'chromEnd', 'name', 'score', 'strand', 'signalValue',
+                                    'pValue', 'qValue'],
+                         channel_last=channel_last, data_col=8,
                          dtype=np.float32)

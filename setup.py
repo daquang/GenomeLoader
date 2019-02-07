@@ -10,6 +10,6 @@ setup(version='0.1.0',
       author="Daniel Quang",
       author_email="daquang@umich.edu",
       packages=find_packages(),
-      install_requires=['numpy', 'pybedtools', 'pyfaidx', 'pandas',
-                        'pyBigWig', 'py2bit', 'tqdm', 'scikit-learn']
+      install_requires=['numpy', 'pybedtools', 'pyfaidx', 'pandas', 'keras',
+                        'pyBigWig', 'py2bit', 'tqdm', 'scikit-learn', 'intervaltree']
       )
