@@ -44,7 +44,7 @@ class MultiBedGenerator(keras.utils.Sequence):
         self.return_sequences = return_sequences
         self.left_justify = left_justify
         self.return_output = return_output
-        jitter_modes = ['sliding', 'detection', 'simple', None]
+        jitter_modes = ['sliding', 'unet', 'simple', None]
         if jitter_mode not in jitter_modes:
             raise ValueError('Invalid jitter mode. Expected one of: %s' % jitter_modes)
         self.jitter_mode = jitter_mode
@@ -83,7 +83,7 @@ class MultiBedGenerator(keras.utils.Sequence):
             if self.jitter_mode == 'sliding':
                 interval_len = chrom_end - chrom_start
                 shift_size = np.max([midpt - chrom_start, int((self.window_len - interval_len) / 2)])
-            elif self.jitter_mode == 'detection' or self.jitter_mode == 'sliding':
+            elif self.jitter_mode == 'unet' or self.jitter_mode == 'simple':
                 shift_size = self.output_seq_len / 2
             else:
                 shift_size = 0
