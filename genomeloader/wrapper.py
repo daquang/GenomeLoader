@@ -254,9 +254,10 @@ class BedWrapper:
         self.data_col = data_col
         col_indices = list(range(len(col_names)))
         self.channel_last = channel_last
-        self.df = pd.read_table(bed_file,
-                                names=col_names,
-                                usecols=col_indices)
+        self.df = pd.read_csv(bed_file,
+                              sep='\t',
+                              names=col_names,
+                              usecols=col_indices)
         self._chroms = self.df.chrom.unique()
         self.bt = pbt.BedTool(bed_file)
         if sort_bed:
