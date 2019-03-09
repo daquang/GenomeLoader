@@ -152,7 +152,6 @@ class MultiBedGenerator(keras.utils.Sequence):
         # Updates indexes after each epoch if shuffling is desired
         try:
             if self.epoch_i != 0 and self.epoch_i % self.epochs_reset == 0:
-                self._reset_negatives()
                 raise BEDToolsError(cmd=None, msg=None)
             self.cumulative_excl_bt = pbt.BedTool(self.cumulative_excl_bt.cat(self.negative_windows_epoch_i.bt,
                                                                               postmerge=True))
@@ -161,10 +160,15 @@ class MultiBedGenerator(keras.utils.Sequence):
                                                                            seed=np.random.randint(
                                                                                np.iinfo(np.uint32).max + 1),
                                                                            maxTries=3)
-            self.negative_windows_epoch_i = BedWrapper(negative_windows_bt.fn)
-            self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         except BEDToolsError:  # Cannot find any more non-overlapping intervals or on a 10th epoch, reset
             self._reset_negatives()
+            negative_windows_bt = self.negative_windows_epoch_i.bt.shuffle(excl=self.cumulative_excl_bt.fn,
+                                                                           noOverlapping=True,
+                                                                           seed=np.random.randint(
+                                                                               np.iinfo(np.uint32).max + 1),
+                                                                           maxTries=3)
+        self.negative_windows_epoch_i = BedWrapper(negative_windows_bt.fn)
+        self.negative_windows_epoch_i.bt.set_chromsizes(self.chromsizes)
         intervals_df_list_epoch_i = [self.master_bed.df, self.negative_windows_epoch_i.df]
         self.intervals_df_epoch_i = pd.concat(intervals_df_list_epoch_i)
         if self.shuffle:
