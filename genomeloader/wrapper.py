@@ -244,7 +244,7 @@ class GenomicIntervalTree(dict):
     def search(self, chrom, start, stop):
         if chrom not in self:
             return []
-        return self[chrom].search(start, stop)
+        return self[chrom].overlap(start, stop)
 
 
 class BedWrapper:
