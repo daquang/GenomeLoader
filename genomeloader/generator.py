@@ -62,12 +62,12 @@ class MultiBedGenerator(keras.utils.Sequence):
         self.on_epoch_end()
 
     def __len__(self):
-        'Denotes the number of batches per epoch'
+        """Denotes the number of batches per epoch"""
         return int(np.ceil(len(self.intervals_df_epoch_i) / self.batch_size))
         # return int(np.ceil((1.0 + self.negatives_ratio) * len(self.bed) / self.batch_size))
 
     def __getitem__(self, index):
-        'Generate one batch of data'
+        """Generate one batch of data"""
         # Collect genome intervals of the batch
         intervals_batch_df = self.intervals_df_epoch_i[index * self.batch_size:(index + 1) * self.batch_size]
         x_signals = [[] for _ in range(len(self.signals))]
