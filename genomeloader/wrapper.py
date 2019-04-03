@@ -316,9 +316,12 @@ class BedWrapper:
         bed_file_train = pbt.BedTool(bed_str_train, from_string=True).fn
         bed_file_valid = pbt.BedTool(bed_str_valid, from_string=True).fn
         bed_file_test = pbt.BedTool(bed_str_test, from_string=True).fn
-        bed_train = BedWrapper(bed_file_train, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
-        bed_valid = BedWrapper(bed_file_valid, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
-        bed_test = BedWrapper(bed_file_test, self.col_names, channel_last=self.channel_last, dtype=self.dtype)
+        bed_train = BedWrapper(bed_file_train, col_names=self.col_names, channel_last=self.channel_last,
+                               data_col=self.data_col, dtype=self.dtype)
+        bed_valid = BedWrapper(bed_file_valid, col_names=self.col_names, channel_last=self.channel_last,
+                               data_col=self.data_col, dtype=self.dtype)
+        bed_test = BedWrapper(bed_file_test, col_names=self.col_names, channel_last=self.channel_last,
+                              data_col=self.data_col, dtype=self.dtype)
         return bed_train, bed_valid, bed_test
 
 
