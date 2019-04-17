@@ -131,7 +131,7 @@ class MultiBedGenerator(keras.utils.Sequence):
 
     def _reset_negatives(self):
         if self.negatives_ratio > 1:
-            self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.bed.bt]),
+            self.negative_windows_epoch_i = BedWrapper(pbt.BedTool.cat(*(self.negatives_ratio * [self.master_bed.bt]),
                                                                        postmerge=False).fn)
         elif self.negatives_ratio == 1:
             self.negative_windows_epoch_i = self.master_bed
