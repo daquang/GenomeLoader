@@ -8,7 +8,7 @@ setup(version='0.1.0',
       url='https://github.com/daquang/GenomeLoader',
       license='MIT',
       author='Daniel Quang',
-      author_email='daquang@umich.edu',
+      author_email='daniel.quang@gmail.com',
       packages=find_packages(),
       install_requires=['numpy', 'pybedtools', 'pyfaidx', 'pandas', 'keras',
                         'pyBigWig', 'py2bit', 'tqdm', 'scikit-learn', 'intervaltree']
